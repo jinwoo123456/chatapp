@@ -11,5 +11,5 @@ use super::handlers;
 pub fn router() -> Router<AppState> {
     Router::new()
     .route("/api/signup", post(handlers::signup_handler))
-        // .route("/login", post(handlers::login))
+    .route("/api/login", post(handlers::login_handler))
 }

@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod api; 
+pub mod api; 
 mod db;  
 
 use tauri::Manager;

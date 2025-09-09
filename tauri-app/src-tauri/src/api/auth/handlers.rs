@@ -1,15 +1,17 @@
 use axum::{extract::State, Json};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use sea_orm::{Statement, DatabaseBackend, ConnectionTrait};
+use serde_json::json;
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TryGetable};
+
 use crate::AppState;
 use super::dto;
-use serde_json::json;
+
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core},
-    Argon2,
+    password_hash::{PasswordHash, SaltString, rand_core::OsRng},
+    Argon2, PasswordHasher, PasswordVerifier,
 };
-use rand_core::OsRng; // 안전한 랜덤 생성기
+
 pub async fn signup_handler(
     State(app_state): State<AppState>,
     Json(payload): Json<dto::SignupReq>,
@@ -18,22 +20,34 @@ pub async fn signup_handler(
 
     let dto::SignupReq { userid, password } = payload;
     println!("[signup] request userid={}", userid);
-    let uid_for_log = userid.clone();
 
-    let sql = "
-    INSERT INTO users 
-    (login_id, password_hash)
-    VALUES ($1, $2)".to_owned();
+    // Argon2 해시 생성
+    let argon2 = Argon2::default();
+    let salt = SaltString::generate(&mut OsRng);
+    let hashed = match argon2.hash_password(password.as_bytes(), &salt) {
+        Ok(h) => h.to_string(),
+        Err(e) => {
+            eprintln!("[signup] hash error: {e}");
+            let body = json!({ "success": 0, "error": e.to_string() });
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(body));
+        }
+    };
+
+    let sql = r#"
+        INSERT INTO users (login_id, password_hash)
+        VALUES ($1, $2)
+    "#.to_owned();
+
     let stmt = Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         sql,
-        vec![userid.into(), hash_password(&password).into()],
+        vec![userid.clone().into(), hashed.into()],
     );
-    // 성공시 1 실패시 9 반환
+
     match db.execute(stmt).await {
         Ok(_) => {
-            println!("[signup] success userid={}", uid_for_log);
-            let body = json!({ "success": 1, "userid": uid_for_log });
+            println!("[signup] success userid={}", userid);
+            let body = json!({ "success": 1, "userid": userid });
             (StatusCode::CREATED, Json(body))
         }
         Err(e) => {
@@ -44,18 +58,71 @@ pub async fn signup_handler(
     }
 }
 
+pub async fn login_handler(
+    State(app_state): State<AppState>,
+    Json(payload): Json<dto::LoginReq>,
+) -> impl IntoResponse {
+    let db = app_state.db.clone();
 
-/// 비밀번호 해쉬화
-pub fn hash_password(plain: &str) -> String {
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default(); // Argon2id, 기본 파라미터
-    let hash = argon2.hash_password(plain.as_bytes(), &salt).unwrap().to_string();
-    hash
-}
+    let dto::LoginReq { userid, password } = payload;
+    println!("[login] request userid={}", userid);
 
-/// 로그인 비번 해쉬코드 검증
-pub fn verify_password(hash_str: &str, input: &str) -> Result<bool, argon2::password_hash::Error> {
-    let parsed = PasswordHash::new(hash_str)?;
-    let ok = Argon2::default().verify_password(input.as_bytes(), &parsed).is_ok();
-    Ok(ok)
+    // 저장된 해시 조회
+    let select_sql = r#"
+        SELECT password_hash
+        FROM users
+        WHERE login_id = $1
+        LIMIT 1
+    "#.to_owned();
+
+    let select_stmt = Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        select_sql,
+        vec![userid.clone().into()],
+    );
+
+    match db.query_one(select_stmt).await {
+        Ok(Some(row)) => {
+            let stored_hash: String = match row.try_get("", "password_hash") {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("[login] row parse error: {e}");
+                    let body = json!({ "success": 9, "error": "invalid credentials" });
+                    return (StatusCode::UNAUTHORIZED, Json(body));
+                }
+            };
+
+            let parsed = match PasswordHash::new(&stored_hash) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("[login] invalid stored hash: {e}");
+                    let body = json!({ "success": 9, "error": "invalid credentials" });
+                    return (StatusCode::UNAUTHORIZED, Json(body));
+                }
+            };
+
+            let argon2 = Argon2::default();
+            match argon2.verify_password(password.as_bytes(), &parsed) {
+                Ok(_) => {
+                    println!("[login] success userid={}", userid);
+                    let body = json!({ "success": 1, "userid": userid });
+                    (StatusCode::OK, Json(body))
+                }
+                Err(_) => {
+                    eprintln!("[login] verify failed userid={}", userid);
+                    let body = json!({ "success": 9, "error": "invalid credentials" });
+                    (StatusCode::UNAUTHORIZED, Json(body))
+                }
+            }
+        }
+        Ok(None) => {
+            let body = json!({ "success": 9, "error": "invalid credentials" });
+            (StatusCode::UNAUTHORIZED, Json(body))
+        }
+        Err(e) => {
+            eprintln!("[login] DB error: {e}");
+            let body = json!({ "success": 9, "error": e.to_string() });
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(body))
+        }
+    }
 }

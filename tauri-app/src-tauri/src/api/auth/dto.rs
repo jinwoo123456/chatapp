@@ -21,5 +21,5 @@ pub struct LoginReq {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct LoginRes {
     pub userid : String,
-    pub token : String,
+    pub password : String,
 }
