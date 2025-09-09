@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   MDBContainer,
@@ -35,7 +35,6 @@ export default function MyPage() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState(defaultProfile);
   const [saving, setSaving] = useState(false);
-  const fileInputRef = useRef(null);
 
   useEffect(() => {
     setProfile(loadProfile());
@@ -51,26 +50,7 @@ export default function MyPage() {
     setTimeout(() => setSaving(false), 500);
   };
 
-  const handlePickImage = () => fileInputRef.current?.click();
-
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      alert("이미지 파일을 선택해주세요.");
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      alert("이미지는 2MB 이하를 권장합니다.");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result;
-      setProfile((p) => ({ ...p, avatar: dataUrl }));
-    };
-    reader.readAsDataURL(file);
-  };
+  // 이미지 URL을 직접 입력받도록 변경
 
   const handleLogout = () => {
     // 필요 시 토큰/스토어 초기화 추가 가능
@@ -163,28 +143,11 @@ export default function MyPage() {
                     />
                   </MDBCol>
                   <MDBCol md="12">
-                    {/* 이미지 등록: 버튼 기반 UI */}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      hidden
-                      onChange={handleFileChange}
+                    <MDBInput
+                      label="아바타 이미지 URL"
+                      value={profile.avatar}
+                      onChange={onChange("avatar")}
                     />
-                    <div className="d-flex align-items-center gap-2">
-                      <MDBBtn color="warning" outline onClick={handlePickImage}>
-                        <MDBIcon fas icon="image" className="me-2" /> 이미지 선택
-                      </MDBBtn>
-                      <MDBBtn
-                        color="light"
-                        onClick={() => setProfile((p) => ({ ...p, avatar: defaultProfile.avatar }))}
-                      >
-                        기본으로
-                      </MDBBtn>
-                    </div>
-                    <div style={{ fontSize: 12, color: "#7b6f6f", marginTop: 6 }}>
-                      JPG/PNG 권장, 2MB 이하
-                    </div>
                   </MDBCol>
                 </MDBRow>
 
