@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "@/styles/friends.css";
 
@@ -38,7 +38,7 @@ export default function Friends() {
     setNewFriendStatus("");
     setShowAdd(false);
   };
-
+  
   return (
     <div className="friends-root">
       <div className="friends-appbar">

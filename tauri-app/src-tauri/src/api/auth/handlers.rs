@@ -6,7 +6,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TryGetable};
 
 use crate::AppState;
 use super::dto;
-
+use super::jwt;
 use argon2::{
     password_hash::{PasswordHash, SaltString, rand_core::OsRng},
     Argon2, PasswordHasher, PasswordVerifier,
@@ -33,14 +33,15 @@ pub async fn signup_handler(
         }
     };
 
-    let sql = r#"
-        INSERT INTO users (login_id, password_hash)
-        VALUES ($1, $2)
+    let insert_sql = r#"
+        INSERT INTO users 
+        (login_id, password_hash)
+        VALUES ($1, $2,)
     "#.to_owned();
 
     let stmt = Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        sql,
+        insert_sql,
         vec![userid.clone().into(), hashed.into()],
     );
 
@@ -67,7 +68,7 @@ pub async fn login_handler(
     let dto::LoginReq { userid, password } = payload;
     println!("[login] request userid={}", userid);
 
-    // 저장된 해시 조회
+
     let select_sql = r#"
         SELECT password_hash
         FROM users
@@ -105,7 +106,18 @@ pub async fn login_handler(
             match argon2.verify_password(password.as_bytes(), &parsed) {
                 Ok(_) => {
                     println!("[login] success userid={}", userid);
-                    let body = json!({ "success": 1, "userid": userid });
+                    let token = match jwt::create_jwt(&userid) {
+                        Ok(t) => {
+                            let body = json!({ "success": 1, "userid": userid, "token": t });
+                            (StatusCode::OK, Json(body))
+                        },
+                        Err(e) => {
+                            eprintln!("[login] JWT creation error: {e}");
+                            let body = json!({ "success": 9, "error": e.to_string() });
+                            return (StatusCode::INTERNAL_SERVER_ERROR, Json(body));
+                        }
+                    };
+                    //let body = json!({ "success": 1, "userid": userid, "token": token });
                     (StatusCode::OK, Json(body))
                 }
                 Err(_) => {
