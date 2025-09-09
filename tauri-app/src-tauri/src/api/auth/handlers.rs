@@ -2,7 +2,7 @@ use axum::{extract::State, Json};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use serde_json::json;
-use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TryGetable};
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
 use crate::AppState;
 use super::dto;
@@ -36,7 +36,7 @@ pub async fn signup_handler(
     let insert_sql = r#"
         INSERT INTO users 
         (login_id, password_hash)
-        VALUES ($1, $2,)
+    VALUES ($1, $2)
     "#.to_owned();
 
     let stmt = Statement::from_sql_and_values(
@@ -106,7 +106,7 @@ pub async fn login_handler(
             match argon2.verify_password(password.as_bytes(), &parsed) {
                 Ok(_) => {
                     println!("[login] success userid={}", userid);
-                    let token = match jwt::create_jwt(&userid) {
+                    match jwt::create_jwt(&userid) {
                         Ok(t) => {
                             let body = json!({ "success": 1, "userid": userid, "token": t });
                             (StatusCode::OK, Json(body))
@@ -114,11 +114,9 @@ pub async fn login_handler(
                         Err(e) => {
                             eprintln!("[login] JWT creation error: {e}");
                             let body = json!({ "success": 9, "error": e.to_string() });
-                            return (StatusCode::INTERNAL_SERVER_ERROR, Json(body));
+                            (StatusCode::INTERNAL_SERVER_ERROR, Json(body))
                         }
-                    };
-                    //let body = json!({ "success": 1, "userid": userid, "token": token });
-                    (StatusCode::OK, Json(body))
+                    }
                 }
                 Err(_) => {
                     eprintln!("[login] verify failed userid={}", userid);

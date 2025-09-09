@@ -1,9 +1,10 @@
 
 import { Routes, Route } from "react-router-dom";
-import Chat from "@/components/Chat";
+import Chat from "@/pages/Chat";
 import Friends from "@/pages/Friends";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
+import MyPage from "@/pages/MyPage";
 
 export default function AppRouter() {
 	return (
@@ -13,6 +14,7 @@ export default function AppRouter() {
 			<Route path="/" element={<Login />} />
             <Route path="/login" element={<Login />} />
 			<Route path="/chat/:friendId" element={<Chat />} />
+			<Route path="/mypage" element={<MyPage />} />
 		</Routes>
 	);
 }

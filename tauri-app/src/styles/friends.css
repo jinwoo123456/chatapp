@@ -22,6 +22,14 @@
   align-items: center;
   justify-content: space-between;
 }
+.friends-myavatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  margin-left: 12px;
+  cursor: pointer;
+  border: 1px solid rgba(0,0,0,0.05);
+}
 .friends-list {
   background: #fffbe7;
   flex: 1;

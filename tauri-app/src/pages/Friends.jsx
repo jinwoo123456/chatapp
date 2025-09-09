@@ -23,6 +23,19 @@ export default function Friends() {
   const [newFriendName, setNewFriendName] = useState("");
   const [newFriendStatus, setNewFriendStatus] = useState("");
   const navigate = useNavigate();
+  const [myAvatar, setMyAvatar] = useState("https://mdbcdn.b-cdn.net/img/Photos/Avatars/avatar-6.webp");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("profile");
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (p?.avatar) setMyAvatar(p.avatar);
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, []);
 
   const handleAddFriend = () => {
     if (!newFriendName.trim()) return;
@@ -42,6 +55,12 @@ export default function Friends() {
   return (
     <div className="friends-root">
       <div className="friends-appbar">
+        <img
+          src={myAvatar}
+          alt="me"
+          className="friends-myavatar"
+          onClick={() => navigate("/mypage")}
+        />
         <span style={{color: "#3c1e1e", flex:1, textAlign:"center"}}>친구</span>
         <div onClick={()=>setShowAdd(true)} style={{background:"none", border:"none", fontSize:26, color:"#3c1e1e", marginRight:16, cursor:"pointer"}} aria-label="친구추가">+</div>
       </div>

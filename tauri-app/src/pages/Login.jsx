@@ -12,7 +12,7 @@ export default function Login() {
     
     let response = await postJson("/login", { userid: id, password: pw });
     console.log("response",response);
-    if (response.success != 1) {
+    if (response.success != 1 || response.error) {
         alert("로그인에 실패했습니다. 아이디와 비밀번호를 확인해주세요.");
         setId("");
         setPw("");
