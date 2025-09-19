@@ -2,53 +2,194 @@
 
 
 import React, { useState, useRef, useEffect } from "react";
+import "@/styles/chat.css";
 import { useParams, useNavigate } from "react-router-dom";
+import postJson, { defaultApiInstance as api } from "@/utils/api";
+import { subscribeChat } from "@/utils/chatSse";
+import { getProfile } from "@/utils/profileApi";
+import { getRoom } from "@/utils/roomApi";
+import { findOrCreateDmRoom } from "@/utils/roomJoin";
 
-const myAvatar = "https://mdbcdn.b-cdn.net/img/Photos/Avatars/avatar-6.webp";
+const fallbackMyAvatar = "https://mdbcdn.b-cdn.net/img/Photos/Avatars/avatar-6.webp";
 
-function getFriends() {
-  // Friends.jsx에서 localStorage에 저장된 친구목록을 불러오거나, 없으면 기본값 반환
-  const saved = localStorage.getItem("friends");
-  if (saved) return JSON.parse(saved);
-  return [
-    { id: 1, name: "홍길동", avatar: "https://mdbcdn.b-cdn.net/img/Photos/Avatars/avatar-1.webp", status: "상태메시지 예시" },
-    { id: 2, name: "김철수", avatar: "https://mdbcdn.b-cdn.net/img/Photos/Avatars/avatar-2.webp", status: "오늘도 화이팅!" }
-  ];
+// room 정보를 기반으로 상대 사용자 표시 정보를 구성
+async function buildFriendFromRoom(room, meName) {
+  try {
+    const participants = Array.isArray(room.participants) ? room.participants : room.participants ? JSON.parse(room.participants) : [];
+    const otherName = participants.find((p) => p !== meName) || participants[0] || "";
+    let avatar = "https://mdbcdn.b-cdn.net/img/Photos/Avatars/avatar-1.webp";
+    let displayName = otherName;
+    if (otherName) {
+      const prof = await getProfile(otherName);
+      if (prof && prof.data) {
+        if (prof.data.avatar) avatar = prof.data.avatar;
+        if (prof.data.display_name) displayName = prof.data.display_name;
+      }
+    }
+    return { id: room.id, name: displayName || otherName || `Room ${room.id}`, avatar, status: "" };
+  } catch {
+    return { id: room.id, name: `Room ${room.id}`, avatar: "https://mdbcdn.b-cdn.net/img/Photos/Avatars/avatar-1.webp", status: "" };
+  }
 }
 
-function getInitialMessages() {
-  // 친구별 메시지 localStorage에서 불러오기
-  const saved = localStorage.getItem("messages");
-  if (saved) return JSON.parse(saved);
-  return {
-    1: [ { from: "other", text: "안녕!" }, { from: "me", text: "안녕! 반가워~" } ],
-    2: [ { from: "other", text: "오늘 뭐해?" }, { from: "me", text: "공부중이야!" } ]
-  };
-}
-
-export default function Chat() {
+function Chat() {
   const { friendId } = useParams();
   const navigate = useNavigate();
-  const friends = getFriends();
-  const friend = friends.find(f => String(f.id) === String(friendId));
-  const [messages, setMessages] = useState(getInitialMessages());
+  const [meName, setMeName] = useState(LOCAL_getUsername());
+  const [myAvatar, setMyAvatar] = useState(fallbackMyAvatar);
+  const [friend, setFriend] = useState(null);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+  const [roomId, setRoomId] = useState(null);
   const messagesEndRef = useRef(null);
+  const eventSourceRef = useRef(null);
 
+  function LOCAL_getUsername() {
+    return localStorage.getItem("username") || "";
+  }
+
+  // 방 정보를 서버에서 불러와 상대 사용자 표시를 구성 (친구추가 여부와 무관)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadFriend() {
+      const username = LOCAL_getUsername();
+      setMeName(username);
+      const uidStr = localStorage.getItem("user_id");
+      let userId = uidStr ? parseInt(uidStr, 10) : null;
+      // 서버에 userId 저장이 없다면 필요 시 username으로 조회해 userId 캐시 (옵션)
+      if (!userId && username) {
+        // 여기에 서버에서 username으로 id를 얻는 로직을 추가할 수 있음
+      }
+      // 내 프로필 아바타 로드(가능할 때)
+      try {
+        const prof = await getProfile(username);
+        if (!cancelled && prof && prof.data && prof.data.avatar) {
+          setMyAvatar(prof.data.avatar);
+        }
+      } catch {}
+      // 방 정보 불러오기
+      const roomRes = await getRoom(Number(friendId));
+      if (cancelled) return;
+      if (roomRes && Array.isArray(roomRes) && roomRes.length > 0) {
+        const room = roomRes[0];
+        const f = await buildFriendFromRoom(room, username);
+        if (!cancelled) setFriend(f);
+      } else {
+        // 방을 찾지 못한 경우: URL 파라미터를 상대 username으로 간주해 DM 방을 찾아 이동
+        if (username) {
+          const dmId = await findOrCreateDmRoom(username, String(friendId));
+          if (!cancelled && dmId) {
+            navigate(`/chat/${dmId}`);
+            return;
+          }
+        }
+        setFriend(null);
+      }
+    }
+    loadFriend();
+    return () => { cancelled = true; };
+  }, [friendId]);
+
+  // 방 보장(존재하면 사용, 없으면 생성) 및 roomId 설정
+  useEffect(() => {
+    let cancelled = false;
+    async function ensureRoom() {
+      if (!friend || !meName) return;
+      const participants = [meName, friend.name].sort();
+      try {
+        const res = await api.get("/room");
+        if (cancelled) return;
+        if (Array.isArray(res.data)) {
+          const found = res.data.find(r => {
+            const ps = (r.participants || []).slice().sort();
+            return ps.length === participants.length && ps.every((v, i) => v === participants[i]);
+          });
+          if (found && found.id) {
+            setRoomId(found.id);
+            return;
+          }
+        }
+      } catch {}
+      // 없으면 생성
+      try {
+        const create = await api.post("/room", { participants });
+        if (!cancelled && create && create.data && create.data.id) {
+          setRoomId(create.data.id);
+        }
+      } catch {}
+    }
+    ensureRoom();
+    return () => { cancelled = true; };
+  }, [friend, meName]);
+
+  // 채팅방 메시지 불러오기 (최초)
+  useEffect(() => {
+    let ignore = false;
+    async function fetchHistory() {
+      if (!roomId || !friend) return;
+      try {
+        const res = await api.get("/chat", { params: { room_id: roomId } });
+        if (!ignore && res && Array.isArray(res.data)) {
+          const msgs = res.data.map(msg => ({ ...msg, from: msg.sender === meName ? "me" : "other", text: msg.message }));
+          setMessages(msgs);
+          
+          // 가장 최신 메시지의 ID로 읽음 상태 업데이트
+          if (msgs.length > 0) {
+            const lastMessageId = msgs[msgs.length - 1].id;
+            try {
+              await api.post(`/room/read/${roomId}` , {
+                username: meName,
+                last_read_id: lastMessageId
+              });
+            } catch (error) {
+              console.error("Failed to mark as read:", error);
+            }
+          }
+        }
+      } catch {}
+    }
+    fetchHistory();
+    return () => { ignore = true; };
+  }, [roomId, friend?.name, meName]);
+
+  // SSE 실시간 메시지 구독
+  useEffect(() => {
+    if (!roomId || !friend) return;
+    if (eventSourceRef.current) eventSourceRef.current.close();
+    eventSourceRef.current = subscribeChat(Number(roomId), async (msg) => {
+      const newMessage = { ...msg, from: msg.sender === meName ? "me" : "other", text: msg.message };
+      setMessages(prev => ([...prev, newMessage]));
+      
+      // 새 메시지 도착시 읽음 상태 업데이트 (본인이 보낸 메시지가 아닌 경우에도 읽음 처리)
+      try {
+        await api.post(`/room/read/${roomId}`, {
+          username: meName,
+          last_read_id: msg.id
+        });
+      } catch (error) {
+        console.error("Failed to mark new message as read:", error);
+      }
+    });
+    return () => { if (eventSourceRef.current) eventSourceRef.current.close(); };
+  }, [roomId, friend?.name, meName]);
+
+  // 새 메시지 도착 시 자동 스크롤
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, friendId]);
+  }, [messages]);
 
-  const handleSend = () => {
-    if (!input.trim() || !friend) return;
-    setMessages(prev => {
-      const updated = {
-        ...prev,
-        [friend.id]: [...(prev[friend.id] || []), { from: "me", text: input }]
-      };
-      localStorage.setItem("messages", JSON.stringify(updated));
-      return updated;
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || !friend || !roomId) return;
+    const res = await postJson("/chat/send", {
+      sender: meName,
+      message: text,
+      room_id: Number(roomId)
     });
+    if (res.success !== 1) {
+      alert(res.error || "메시지 전송 실패");
+      return;
+    }
     setInput("");
   };
 
@@ -62,65 +203,23 @@ export default function Chat() {
   }
 
   return (
-    <div style={{
-      maxWidth: 480,
-      margin: "0 auto",
-      height: "100vh",
-      display: "flex",
-      flexDirection: "column",
-      background: "#fef01b"
-    }}>
+    <div className="chat-root">
       {/* 상단 앱바 */}
-      <div style={{
-        background: "#fef01b",
-        borderBottom: "1px solid #e5e5e5",
-        padding: "16px 0 12px 0",
-        textAlign: "center",
-        fontWeight: 700,
-        fontSize: 20,
-        letterSpacing: 1,
-        position: "sticky",
-        top: 0,
-        zIndex: 10,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between"
-      }}>
-        <button onClick={()=>navigate("/")} style={{background:"none",border:"none",fontSize:22,marginLeft:12,cursor:"pointer",color:"#3c1e1e"}}>&lt;</button>
-        <span style={{color: "#3c1e1e", flex:1, textAlign:"center"}}>{friend.name}</span>
-        <div style={{width:32}}></div>
+      <div className="chat-appbar">
+        <button onClick={()=>navigate("/chats")} className="chat-back-btn">&lt;</button>
+        <span className="chat-title">{friend.name}</span>
+        <div className="chat-title-gap"></div>
       </div>
       {/* 채팅 메시지 영역 */}
-      <div style={{
-        flex: 1,
-        overflowY: "auto",
-        background: "#fffbe7",
-        padding: "16px 8px 80px 8px"
-      }}>
-        {(messages[friend.id]||[]).map((msg, idx) => (
-          <div key={idx} style={{
-            display: "flex",
-            flexDirection: msg.from === "me" ? "row-reverse" : "row",
-            alignItems: "flex-end",
-            marginBottom: 12
-          }}>
+      <div className="chat-messages">
+        {messages.map((msg, idx) => (
+          <div key={idx} className={`chat-message-row ${msg.from === "me" ? "me" : "other"}`}>
             <img
               src={msg.from === "me" ? myAvatar : friend.avatar}
               alt="avatar"
-              style={{width: 36, height: 36, borderRadius: "50%", margin: msg.from === "me" ? "0 0 0 8px" : "0 8px 0 0"}}
+              className={`chat-message-avatar ${msg.from === "me" ? "me" : "other"}`}
             />
-            <div style={{
-              background: msg.from === "me" ? "#ffe100" : "#fff",
-              color: "#222",
-              borderRadius: 18,
-              padding: "10px 16px",
-              fontSize: 16,
-              maxWidth: "70%",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-              marginLeft: msg.from === "me" ? 0 : 4,
-              marginRight: msg.from === "me" ? 4 : 0,
-              border: msg.from === "me" ? "1px solid #ffe066" : "1px solid #eee"
-            }}>
+            <div className={`chat-bubble ${msg.from === "me" ? "me" : "other"}`}>
               {msg.text}
             </div>
           </div>
@@ -128,54 +227,21 @@ export default function Chat() {
         <div ref={messagesEndRef} />
       </div>
       {/* 하단 입력창 */}
-      <div style={{
-        position: "fixed",
-        left: 0,
-        bottom: 0,
-        width: "100%",
-        maxWidth: 480,
-        background: "#fffbe7",
-        borderTop: "1px solid #e5e5e5",
-        padding: "8px 8px 12px 8px",
-        display: "flex",
-        alignItems: "center"
-      }}>
+      <div className="chat-input-bar">
         <input
           type="text"
           placeholder={friend.name + "에게 메시지 보내기"}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") handleSend(); }}
-          style={{
-            flex: 1,
-            border: "none",
-            borderRadius: 20,
-            padding: "10px 16px",
-            fontSize: 16,
-            background: "#fff",
-            marginRight: 8,
-            outline: "none",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.04)"
-          }}
+          className="chat-input"
         />
-        <button
-          onClick={handleSend}
-          style={{
-            background: "#ffe100",
-            border: "none",
-            borderRadius: "50%",
-            width: 40,
-            height: 40,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-            cursor: "pointer"
-          }}
-        >
+        <button onClick={handleSend} className="chat-send-btn">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3c1e1e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
         </button>
       </div>
     </div>
   );
 }
+
+export default Chat;

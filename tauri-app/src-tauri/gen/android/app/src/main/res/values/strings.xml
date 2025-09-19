@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">rust-tauri-chatapp</string>
+    <string name="main_activity_title">rust-tauri-chatapp</string>
+</resources>

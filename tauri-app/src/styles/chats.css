@@ -1,0 +1,131 @@
+/* Chats(채팅목록) 페이지 스타일 */
+.chats-root {
+  max-width: 480px;
+  margin: 0 auto;
+  height: 100vh;
+  background: #fef01b;
+  display: flex;
+  flex-direction: column;
+}
+.chats-appbar {
+  background: #fef01b;
+  border-bottom: 1px solid #e5e5e5;
+  padding: 16px 0 12px 0;
+  text-align: center;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 1px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.chats-title {
+  color: #3c1e1e;
+  flex: 1;
+  text-align: center;
+}
+.appbar-nav {
+  display: flex;
+  gap: 12px;
+  margin-right: 16px;
+}
+.appbar-btn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: #3c1e1e;
+  cursor: pointer;
+}
+.appbar-btn--active {
+  background: #ffe9ec;
+  border: 1px solid #ffccd2;
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 14px;
+  color: #c63a46;
+}
+.chats-myavatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  margin-left: 12px;
+  cursor: pointer;
+  border: 1px solid rgba(0,0,0,0.05);
+}
+.chats-list {
+  background: #fffbe7;
+  flex: 1;
+  overflow-y: auto;
+}
+.chats-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.chats-item:hover {
+  background-color: #f5f5f5 !important;
+}
+.chats-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  margin-right: 12px;
+}
+.chats-name {
+  font-weight: 600;
+  font-size: 16px;
+  color: #333;
+}
+.chats-status {
+  font-size: 14px;
+  color: #666;
+}
+.chats-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.chats-subrow {
+  display: flex;
+  justify-content: space-between;
+}
+.chats-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.chats-unread-badge {
+  background-color: #ff4757;
+  color: white;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: bold;
+  min-width: 20px;
+  text-align: center;
+}
+.chats-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: #666;
+}
+.chats-empty-title {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.chats-empty-subtitle {
+  font-size: 14px;
+}
+.chats-loading {
+  padding: 20px;
+  text-align: center;
+  color: #666;
+}
